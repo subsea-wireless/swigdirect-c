@@ -79,46 +79,54 @@ bool decode_swig_message(pb_istream_t *pbbuffer_in, subseawireless_Message *mess
 
 void udp_init() {
     buffer_make_buffered_stream(&(udp_in_buffer), &(udp_in_stream));
-		register_read_stream_udp( &udp_in_stream, &udp_in, 14551);
-		register_write_stream_udp(&udp_out_stream, &udp_out, "127.0.0.1",14550);
+		register_read_stream_udp( &udp_in_stream, &udp_in, udp_port);
+		register_write_stream_udp(&udp_out_stream, &udp_out, "127.0.0.1",55501);
 		udp_out.sock=udp_in.sock;
 
 }
+
+void send_to_stream(byte_stream_t *stream, uint8_t buf[], int size) {
+  for (int i=0; i<size; i++) {
+    stream->put(stream->data, buf[i]);
+  }
+  stream->flush(stream->data);
+}
+
+
 /** handler for received UDP packets*/
 void udp_update() {
-  int size = 0;// udp.parsePacket();
+  
   //COBS cobs_coder;
   subseawireless_Message message = subseawireless_Message_init_default;
   subseawireless_Parameter parameter = subseawireless_Parameter_init_default;
   bool success = false;
   uint8_t cobs_buffer[COBS_SIZE];
 
-  if (size > 0) {
-    //IPAddress remote = udp.remoteIP();
-    //printf("Received UDP packet from %s,  %i bytes\n", remote.toString(), size);
-    // read UDP data
-    //int len = udp_receive_packet(udp_socket, cobs_buffer, COBS_SIZE);
-    int len = udp_in_stream.read2buf((stream_data_t*)&udp_in, cobs_buffer, COBS_SIZE);
-    if (len>0) {
-      success = true;
-      // decode packet
-      //uint8_t in_buffer[MSG_SIZE];
-      //size_t msg_size = cobs_coder.decode(cobs_buffer, len, in_buffer);
-      //printf("received COBS message: raw size %i, decoded size %i\n", len, msg_size);
-      //pb_istream_t pbbuffer_in = pb_istream_from_buffer(in_buffer, msg_size);
-      pb_istream_t pbbuffer_in = pb_istream_from_buffer(cobs_buffer, len);
-      // decode SWiG
-      message.requests.funcs.decode = &decode_parameter;
-      message.requests.arg = &parameter;
-      message.parameters.funcs.decode = &decode_parameter;
-      message.parameters.arg = &parameter;
-      message.responses.funcs.decode = &decode_parameter;
-      message.responses.arg = &parameter;
-      pb_decode(&pbbuffer_in, subseawireless_Message_fields, &message);
+  //IPAddress remote = udp.remoteIP();
+  //printf("Received UDP packet from %s,  %i bytes\n", remote.toString(), size);
+  // read UDP data
+  //int len = udp_receive_packet(udp_socket, cobs_buffer, COBS_SIZE);
+  int len = udp_in_stream.read2buf((stream_data_t*)&udp_in, cobs_buffer, COBS_SIZE);
+  if (len>0) {
+    success = true;
+    // decode packet
+    //uint8_t in_buffer[MSG_SIZE];
+    //size_t msg_size = cobs_coder.decode(cobs_buffer, len, in_buffer);
+    //printf("received COBS message: raw size %i, decoded size %i\n", len, msg_size);
+    //pb_istream_t pbbuffer_in = pb_istream_from_buffer(in_buffer, msg_size);
+    pb_istream_t pbbuffer_in = pb_istream_from_buffer(cobs_buffer, len);
+    // decode SWiG
+    message.requests.funcs.decode = &decode_parameter;
+    message.requests.arg = &parameter;
+    message.parameters.funcs.decode = &decode_parameter;
+    message.parameters.arg = &parameter;
+    message.responses.funcs.decode = &decode_parameter;
+    message.responses.arg = &parameter;
+    pb_decode(&pbbuffer_in, subseawireless_Message_fields, &message);
 
-      //success = success && decode_swig_message(&pbbuffer_in, &message);
-      printf("SWiG message from %i to %i\n", message.source, message.target);
-    }
+    //success = success && decode_swig_message(&pbbuffer_in, &message);
+    printf("SWiG message from %i to %i\n", message.source, message.target);
+    
     //udp.flush();
 
     if (!success) return;
@@ -134,6 +142,7 @@ void udp_update() {
     //udp.write(sMsg,pbbuffer.bytes_written);
     //udp.endPacket();
     //printf("Sent response, %i bytes\n", cobs_size);
+    send_to_stream(&udp_out_stream, sMsg, pbbuffer.bytes_written);
     printf("Sent response, %i bytes\n", (int)pbbuffer.bytes_written);
   }
 }
@@ -180,11 +189,6 @@ bool send_request(pb_ostream_t *stream, const pb_field_iter_t *field, void * con
 
 int counter = 0;
 void loop() {
-  // put your main code here, to run repeatedly:
-
-
-  //printf("test! %i\n", counter);
-  //pixels.setPixelColor(0, pixels.Color (counter, counter/64, counter/4096));
 
   //cobs.update();
 

@@ -125,7 +125,7 @@ void udp_stream_init_read_socket(udp_connection_t *udpconn, int port)
     //{
     //	perror("setsockopt");
     //}
-    /* Bind the socket to port 14551 - necessary to receive packets from qgroundcontrol */
+
     if (-1 == bind(udpconn->sock, (struct sockaddr *)&(udpconn->Addr), sizeof(struct sockaddr)))
     {
         printf("error bind failed\n");

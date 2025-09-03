@@ -41,10 +41,4 @@ void udp_bus_master_init(udp_bus_master_t *data, int port, bool rebroadcast);
 
 void udp_bus_client_init(udp_bus_client_t *data, const char *target_ip, int port);
 
-void register_write_stream_udp_bus(byte_stream_t *stream, udp_bus_master_t *data);
-
-void register_read_stream_udp_bus(byte_stream_t *stream, udp_bus_master_t *data);
-
-int udp_bus_master_register_client(udp_bus_master_t *data, struct sockaddr_in client_addr);
-
 #endif
