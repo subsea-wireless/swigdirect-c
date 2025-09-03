@@ -53,20 +53,25 @@ bool decode_parameter(pb_istream_t *stream, const pb_field_iter_t *field, void *
   bool eof = false;
   pb_wire_type_t wiretype;
   uint32_t tag;
+
+  printf("decoding parameter %i ...", field->index);
   if (!pb_decode_tag(stream, &wiretype, &tag, &eof)) {
+    printf("n/a\n");
     return false;
   }
   
   printf("got wiretype %i, tag %i, bytes left %i\n",wiretype, tag, (int)stream->bytes_left);
 
-  bool success = pb_decode_ex(stream, subseawireless_Parameter_fields, *arg, PB_DECODE_DELIMITED);
+  subseawireless_Parameter param;
+  bool success = pb_decode_ex(stream, subseawireless_Parameter_fields, &param, PB_DECODE_NULLTERMINATED);
   if (!success)
   {
       const char * error = PB_GET_ERROR(stream);
       printf("pb_decode error: %s\n", error);
       return false;
   }
-  printf("Received parameter!\n");
+  //subseawireless_Parameter *param = (subseawireless_Parameter*)arg;
+  printf("Received parameter! id=%i, value=%i\n", param.id, param.integer);
   return success;
 }
 
@@ -108,6 +113,7 @@ void udp_update() {
   //int len = udp_receive_packet(udp_socket, cobs_buffer, COBS_SIZE);
   int len = udp_in_stream.read2buf((stream_data_t*)&udp_in, cobs_buffer, COBS_SIZE);
   if (len>0) {
+    printf("received data, %i bytes\n", len);
     success = true;
     // decode packet
     //uint8_t in_buffer[MSG_SIZE];
@@ -137,10 +143,7 @@ void udp_update() {
     //size_t cobs_size = cobs_coder.encode(sMsg, pbbuffer.bytes_written, cobs_buffer);
     // add 0 as delimiter
     //cobs_size++;
-    //udp.beginPacket(remote, 55501);
-    //udp.write(cobs_buffer,cobs_size);
-    //udp.write(sMsg,pbbuffer.bytes_written);
-    //udp.endPacket();
+    //send_to_stream(&udp_out_stream, cobs_buffer, cobs_size);
     //printf("Sent response, %i bytes\n", cobs_size);
     send_to_stream(&udp_out_stream, sMsg, pbbuffer.bytes_written);
     printf("Sent response, %i bytes\n", (int)pbbuffer.bytes_written);
@@ -189,14 +192,10 @@ bool send_request(pb_ostream_t *stream, const pb_field_iter_t *field, void * con
 
 int counter = 0;
 void loop() {
-
   //cobs.update();
-
   udp_update();
   counter+=4;
   //delay(10);
-  
-
 }
 
 
