@@ -19,6 +19,6 @@ main: $(CSRC)
 	$(CC) $(CFLAGS) -omain $(CSRC)
 
 # Build rule for the protocol
-parameters.pb.c: parameters.proto
-	$(PROTOC) $(PROTOC_OPTS) --nanopb_out=. parameters.proto
+src/parameters.pb.c: parameters.proto
+	$(PROTOC) $(PROTOC_OPTS) --nanopb_out=src/ parameters.proto
 

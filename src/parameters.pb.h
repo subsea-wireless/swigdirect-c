@@ -144,13 +144,17 @@ typedef enum _subseawireless_Parameter_identifier {
     subseawireless_Parameter_identifier_deassign_timeslot = 121,
     subseawireless_Parameter_identifier_csma_enable = 122,
     subseawireless_Parameter_identifier_allow_network_reset_if_control_lost = 124,
-    subseawireless_Parameter_identifier_comms_capabilities = 125
+    subseawireless_Parameter_identifier_comms_capabilities = 125,
+    subseawireless_Parameter_identifier_comms_waveform_ID_number = 126,
+    subseawireless_Parameter_identifier_comms_bandwidth_code = 127,
+    subseawireless_Parameter_identifier_comms_center_frequency_code = 128,
+    subseawireless_Parameter_identifier_comms_configuration_set = 141
 } subseawireless_Parameter_identifier;
 
 /* Struct definitions */
 typedef struct _subseawireless_Parameter {
     subseawireless_Parameter_identifier id;
-    bool boolean;
+    bool bool_;
     int32_t integer;
     pb_callback_t string;
 } subseawireless_Parameter;
@@ -170,8 +174,8 @@ extern "C" {
 
 /* Helper constants for enums */
 #define _subseawireless_Parameter_identifier_MIN subseawireless_Parameter_identifier_INVALID
-#define _subseawireless_Parameter_identifier_MAX subseawireless_Parameter_identifier_swig_type_minor
-#define _subseawireless_Parameter_identifier_ARRAYSIZE ((subseawireless_Parameter_identifier)(subseawireless_Parameter_identifier_swig_type_minor+1))
+#define _subseawireless_Parameter_identifier_MAX subseawireless_Parameter_identifier_comms_configuration_set
+#define _subseawireless_Parameter_identifier_ARRAYSIZE ((subseawireless_Parameter_identifier)(subseawireless_Parameter_identifier_comms_configuration_set+1))
 
 #define subseawireless_Parameter_id_ENUMTYPE subseawireless_Parameter_identifier
 
@@ -185,7 +189,7 @@ extern "C" {
 
 /* Field tags (for use in manual encoding/decoding) */
 #define subseawireless_Parameter_id_tag          1
-#define subseawireless_Parameter_boolean_tag     2
+#define subseawireless_Parameter_bool_tag        2
 #define subseawireless_Parameter_integer_tag     3
 #define subseawireless_Parameter_string_tag      32
 #define subseawireless_Message_source_tag        1
@@ -197,7 +201,7 @@ extern "C" {
 /* Struct field encoding specification for nanopb */
 #define subseawireless_Parameter_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UENUM,    id,                1) \
-X(a, STATIC,   SINGULAR, BOOL,     boolean,           2) \
+X(a, STATIC,   SINGULAR, BOOL,     bool_,             2) \
 X(a, STATIC,   SINGULAR, INT32,    integer,           3) \
 X(a, CALLBACK, SINGULAR, STRING,   string,           32)
 #define subseawireless_Parameter_CALLBACK pb_default_field_callback

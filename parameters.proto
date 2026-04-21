@@ -139,9 +139,13 @@ message Parameter{
     csma_enable = 122;
     allow_network_reset_if_control_lost = 124;
     comms_capabilities = 125;
+    comms_waveform_ID_number = 126;
+    comms_bandwidth_code = 127;
+    comms_center_frequency_code = 128;
+    comms_configuration_set = 141;
   }
   identifier id = 1;
-  bool boolean = 2;
+  bool bool = 2;
   int32 integer = 3;
   string string = 32;
 }
