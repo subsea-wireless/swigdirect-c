@@ -50,29 +50,31 @@ void encode_swig_response(pb_ostream_t *pbbuffer) {
 }
 
 bool decode_parameter(pb_istream_t *stream, const pb_field_iter_t *field, void **arg) {
-  bool eof = false;
-  pb_wire_type_t wiretype;
-  uint32_t tag;
+    // 1. Handle "requests" (repeated int32 - packed)
+    if (field->tag == subseawireless_Message_requests_tag) {
+        while (stream->bytes_left > 0) {
+            uint64_t value;
+            if (!pb_decode_varint(stream, &value)) {
+                return false;
+            }
+            printf("Requested ID: %lu\n", value);
+        }
+        return true;
+    }
 
-  printf("decoding parameter %i ...", field->index);
-  if (!pb_decode_tag(stream, &wiretype, &tag, &eof)) {
-    printf("n/a\n");
-    return false;
-  }
-  
-  printf("got wiretype %i, tag %i, bytes left %i\n",wiretype, tag, (int)stream->bytes_left);
+    // 2. Handle "parameters" or "responses" (repeated Message)  
+    subseawireless_Parameter param = subseawireless_Parameter_init_default;
+    
+    // Use standard pb_decode. pb_decode_ex with NULLTERMINATED is for 
+    // top-level streams without a known length.
+    if (!pb_decode(stream, subseawireless_Parameter_fields, &param)) {
+        const char * error = PB_GET_ERROR(stream);
+        printf("pb_decode error: %s\n", error);
+        return false;
+    }
 
-  subseawireless_Parameter param;
-  bool success = pb_decode_ex(stream, subseawireless_Parameter_fields, &param, PB_DECODE_NULLTERMINATED);
-  if (!success)
-  {
-      const char * error = PB_GET_ERROR(stream);
-      printf("pb_decode error: %s\n", error);
-      return false;
-  }
-  //subseawireless_Parameter *param = (subseawireless_Parameter*)arg;
-  printf("Received parameter! id=%i, value=%i\n", param.id, param.integer);
-  return success;
+    printf("Received parameter! id=%i, value=%i\n", param.id, param.integer);
+    return true;
 }
 
 
