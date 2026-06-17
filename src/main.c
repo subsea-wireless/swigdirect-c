@@ -8,6 +8,7 @@
 #include <sys/types.h>
 #include <netinet/in.h>
 #include "udp_stream.h"
+#include "cobs_codec.h"
 
 #define DELAYVAL 500
 
@@ -37,6 +38,45 @@ bool send_parameter(pb_ostream_t *stream, const pb_field_iter_t *field, void * c
   return pb_encode_submessage(stream, subseawireless_Parameter_fields, &parameter);
 }
 
+/******************************************************************************
+Function:   encode_string
+******************************************************************************/
+bool encode_string(pb_ostream_t *stream, const pb_field_t *field, void *const *arg) {
+    char *str = (char *)*arg;
+    if (!pb_encode_tag_for_field(stream, field))
+        return false;
+    return pb_encode_string(stream, (uint8_t *)str, strlen(str));
+}
+
+const char* kVendorName = "Hydromea";
+
+// nanopb callback for sending parameter payloads
+bool send_parameters(pb_ostream_t *stream, const pb_field_iter_t *field, void * const *arg) {
+  if (!pb_encode_tag_for_field(stream, field))
+    return false;
+  subseawireless_Parameter parameter = subseawireless_Parameter_init_default;
+  parameter.string.arg = (void*)kVendorName; 
+  parameter.string.funcs.encode = encode_string;
+  parameter.id = subseawireless_Parameter_identifier_manufacturer_name; // Manufacturer name
+  pb_encode_submessage(stream, subseawireless_Parameter_fields, &parameter);
+
+  memset(&parameter, 0, sizeof(subseawireless_Parameter));
+  pb_encode_tag_for_field(stream, field);
+  parameter.integer = 1; //integer
+  parameter.id = subseawireless_Parameter_identifier_swig_version_major; //SWiG version
+  pb_encode_submessage(stream, subseawireless_Parameter_fields, &parameter);
+
+  pb_encode_tag_for_field(stream, field);
+  parameter.integer = 2; //integer
+  parameter.id = subseawireless_Parameter_identifier_swig_version_minor; //SWiG version
+  pb_encode_submessage(stream, subseawireless_Parameter_fields, &parameter);
+
+  pb_encode_tag_for_field(stream, field);
+  parameter.integer = -99; //integer
+  parameter.id = subseawireless_Parameter_identifier_background_noise; // Background noise
+  return pb_encode_submessage(stream, subseawireless_Parameter_fields, &parameter);
+}
+
 // convenience function to send a swig response message
 void encode_swig_response(pb_ostream_t *pbbuffer) {
   subseawireless_Message message = subseawireless_Message_init_default;
@@ -44,7 +84,7 @@ void encode_swig_response(pb_ostream_t *pbbuffer) {
   message.target = 1;
   //message.requests.funcs.encode = &send_request; 
   //message.parameters.funcs.encode = &send_parameter; 
-  message.responses.funcs.encode = &send_parameter; 
+  message.responses.funcs.encode = &send_parameters; 
 
   pb_encode(pbbuffer, subseawireless_Message_fields , &message);
 }
@@ -99,7 +139,6 @@ void send_to_stream(byte_stream_t *stream, uint8_t buf[], int size) {
   stream->flush(stream->data);
 }
 
-
 /** handler for received UDP packets*/
 void udp_update() {
   
@@ -117,13 +156,13 @@ void udp_update() {
   if (len>0) {
     printf("received data, %i bytes\n", len);
     success = true;
-    // decode packet
-    //uint8_t in_buffer[MSG_SIZE];
-    //size_t msg_size = cobs_coder.decode(cobs_buffer, len, in_buffer);
-    //printf("received COBS message: raw size %i, decoded size %i\n", len, msg_size);
-    //pb_istream_t pbbuffer_in = pb_istream_from_buffer(in_buffer, msg_size);
-    pb_istream_t pbbuffer_in = pb_istream_from_buffer(cobs_buffer, len);
-    // decode SWiG
+    // decode packet as COBS
+    size_t msg_size = cobsDecode(cobs_buffer, (size_t)len, cobs_buffer);
+    printf("received COBS message: decoded size %lu\n", (long unsigned)msg_size);
+    
+    // decode SWiG protobuf
+    pb_istream_t pbbuffer_in = pb_istream_from_buffer(cobs_buffer, msg_size);
+    
     message.requests.funcs.decode = &decode_parameter;
     message.requests.arg = &parameter;
     message.parameters.funcs.decode = &decode_parameter;
@@ -142,13 +181,12 @@ void udp_update() {
     // send response back to sender
     pb_ostream_t pbbuffer = pb_ostream_from_buffer(sMsg, sizeof(sMsg));
     encode_swig_response(&pbbuffer);
-    //size_t cobs_size = cobs_coder.encode(sMsg, pbbuffer.bytes_written, cobs_buffer);
-    // add 0 as delimiter
-    //cobs_size++;
-    //send_to_stream(&udp_out_stream, cobs_buffer, cobs_size);
-    //printf("Sent response, %i bytes\n", cobs_size);
-    send_to_stream(&udp_out_stream, sMsg, pbbuffer.bytes_written);
-    printf("Sent response, %i bytes\n", (int)pbbuffer.bytes_written);
+
+    size_t cobs_size = cobsEncode(sMsg, pbbuffer.bytes_written, cobs_buffer);
+    // add 0 as delimiter (not needed/expected by the example Python test harness)
+    // cobs_buffer[cobs_size++] = 0;
+    send_to_stream(&udp_out_stream, cobs_buffer, cobs_size);
+    printf("Sent COBS response: raw size %lu, encoded size %lu bytes\n", (long unsigned)pbbuffer.bytes_written, (long unsigned)cobs_size);
   }
 }
 
