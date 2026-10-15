@@ -1,6 +1,8 @@
 
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <pb_encode.h>
 #include <pb_decode.h>
 #include "parameters.pb.h"
@@ -42,6 +44,16 @@ byte_stream_t udp_out_stream, udp_in_stream;
 
 char udp_packet_buffer[255];
 unsigned int udp_port = 55502;
+
+/**
+ * @brief The source ID used in SWiG messages (message.source)
+ */
+int message_source = 2;
+
+/**
+ * @brief The target ID used in SWiG messages (message.target)
+ */
+int message_target = 1;
 
 
 // nanopb callback for sending parameter payloads
@@ -96,8 +108,8 @@ bool send_parameters(pb_ostream_t *stream, const pb_field_iter_t *field, void * 
 // convenience function to send a swig response message
 void encode_swig_response(pb_ostream_t *pbbuffer) {
   subseawireless_Message message = subseawireless_Message_init_default;
-  message.source = 2;
-  message.target = 1;
+  message.source = message_source;
+  message.target = message_target;
   //message.requests.funcs.encode = &send_request; 
   //message.parameters.funcs.encode = &send_parameter; 
   message.responses.funcs.encode = &send_parameters; 
@@ -291,7 +303,35 @@ void loop() {
 }
 
 
-int main (void) {
+void usage(const char *prog) {
+  fprintf(stderr,
+    "Usage: %s [--port <udp-port>] [--source <source-id>] [--target <target-id>]\n"
+    "  --port    UDP port to listen on (default: 55502)\n"
+    "  --source  Source ID for SWiG messages (default: 2)\n"
+    "  --target  Target ID for SWiG messages (default: 1)\n", prog);
+}
+
+/**
+ * @brief Parse command line arguments, falling back to defaults
+ */
+void parse_args(int argc, char **argv) {
+  for (int i = 1; i < argc; i++) {
+    if (strcmp(argv[i], "--port") == 0 && i + 1 < argc) {
+      udp_port = (unsigned int)atoi(argv[++i]);
+    } else if (strcmp(argv[i], "--source") == 0 && i + 1 < argc) {
+      message_source = atoi(argv[++i]);
+    } else if (strcmp(argv[i], "--target") == 0 && i + 1 < argc) {
+      message_target = atoi(argv[++i]);
+    } else {
+      fprintf(stderr, "Invalid argument: %s\n", argv[i]);
+      usage(argv[0]);
+      exit(EXIT_FAILURE);
+    }
+  }
+}
+
+int main (int argc, char **argv) {
+  parse_args(argc, argv);
   setup();
   while (true) loop();
 }
