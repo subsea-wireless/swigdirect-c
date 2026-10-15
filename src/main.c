@@ -1,6 +1,8 @@
 
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <pb_encode.h>
 #include <pb_decode.h>
 #include "parameters.pb.h"
@@ -9,23 +11,49 @@
 #include <netinet/in.h>
 #include "udp_stream.h"
 #include "cobs_codec.h"
+#include "coap_codec.h"
+#include "crc16.h"
 
 #define DELAYVAL 500
 
+/**
+ * @brief The maximum protobuf message buffer length
+ */
 #define MSG_SIZE 50
-// calculate COBS overhead for max. buffer size
-#define COBS_SIZE (MSG_SIZE+MSG_SIZE/254+1)
 
-uint8_t sMsg[MSG_SIZE];
+/**
+ * @brief The maximum CoAP message size (bytes)
+ * @note The maximum CoAP overhead is the fixed 4 byte header with the largest token size (8 bytes) and an end marker (1 byte)
+ */
+#define COAP_SIZE (MSG_SIZE+13)
+
+/**
+ * @brief The maximum COBS message size (bytes)
+ * @note This is the maximum CoAP message size, plus a 2-byte CRC, plus the overhead for the byte stuffing and with a nul start and end byte
+ */
+#define COBS_SIZE (2+(COAP_SIZE+2)+(COAP_SIZE+2)/254+1)
+
+uint8_t message_buffer[MSG_SIZE];
+uint8_t coap_buffer[COAP_SIZE];
 
 //PacketSerial cobs; 
 udp_connection_t udp_out, udp_in;
-buffer_t  udp_in_buffer;
+buffer_t udp_in_buffer;
 byte_stream_t udp_out_stream, udp_in_stream;
 
 
 char udp_packet_buffer[255];
 unsigned int udp_port = 55502;
+
+/**
+ * @brief The source ID used in SWiG messages (message.source)
+ */
+int message_source = 2;
+
+/**
+ * @brief The target ID used in SWiG messages (message.target)
+ */
+int message_target = 1;
 
 
 // nanopb callback for sending parameter payloads
@@ -80,8 +108,8 @@ bool send_parameters(pb_ostream_t *stream, const pb_field_iter_t *field, void * 
 // convenience function to send a swig response message
 void encode_swig_response(pb_ostream_t *pbbuffer) {
   subseawireless_Message message = subseawireless_Message_init_default;
-  message.source = 2;
-  message.target = 1;
+  message.source = message_source;
+  message.target = message_target;
   //message.requests.funcs.encode = &send_request; 
   //message.parameters.funcs.encode = &send_parameter; 
   message.responses.funcs.encode = &send_parameters; 
@@ -147,44 +175,80 @@ void udp_update() {
   subseawireless_Parameter parameter = subseawireless_Parameter_init_default;
   bool success = false;
   uint8_t cobs_buffer[COBS_SIZE];
+  struct CoapFrame coap_frame;
 
   //IPAddress remote = udp.remoteIP();
   //printf("Received UDP packet from %s,  %i bytes\n", remote.toString(), size);
   // read UDP data
   //int len = udp_receive_packet(udp_socket, cobs_buffer, COBS_SIZE);
   int len = udp_in_stream.read2buf((stream_data_t*)&udp_in, cobs_buffer, COBS_SIZE);
-  if (len>0) {
+  if (len > 0) {
     printf("received data, %i bytes\n", len);
-    success = true;
     // decode packet as COBS
-    size_t msg_size = cobsDecode(cobs_buffer, (size_t)len, cobs_buffer);
+    uint8_t* cobs_frame = cobs_buffer;
+    while((*cobs_frame == '\0') && (len > 0)) {
+      cobs_frame++;
+      len--;
+    }
+    size_t msg_size = cobsDecode(cobs_frame, (size_t)len, cobs_buffer);
     printf("received COBS message: decoded size %lu\n", (long unsigned)msg_size);
     
-    // decode SWiG protobuf
-    pb_istream_t pbbuffer_in = pb_istream_from_buffer(cobs_buffer, msg_size);
-    
-    message.requests.funcs.decode = &decode_parameter;
-    message.requests.arg = &parameter;
-    message.parameters.funcs.decode = &decode_parameter;
-    message.parameters.arg = &parameter;
-    message.responses.funcs.decode = &decode_parameter;
-    message.responses.arg = &parameter;
-    pb_decode(&pbbuffer_in, subseawireless_Message_fields, &message);
+    if(msg_size > 2) {
+      // calculate the CRC
+      uint16_t calculated_crc = Crc16CalculateChecksum(cobs_buffer, msg_size - 2);
+      uint16_t decoded_crc = (uint16_t)(cobs_buffer[msg_size - 2]) << 8;
+      decoded_crc |= cobs_buffer[msg_size - 1];
+      printf("CRC: received 0x%02x, expected 0x%02x\n", decoded_crc, calculated_crc);
+      // validate the CRC
+      if(decoded_crc == calculated_crc) {
+        // decode CoAP frame
+        coapDecode(cobs_buffer, msg_size - 2, &coap_frame);
 
-    //success = success && decode_swig_message(&pbbuffer_in, &message);
-    printf("SWiG message from %i to %i\n", message.source, message.target);
-    
+        printf("Version: %d\n", coap_frame.version);
+        printf("Type: %d\n", coap_frame.type);
+        printf("Message id: %d\n", coap_frame.message_id);
+        printf("Code class: %d\n", coap_frame.code.code_class);
+        printf("Code detail: %d\n", coap_frame.code.code_detail);
+        printf("Payload length: %d\n", (int)coap_frame.payload.length);
+
+        // decode SWiG protobuf
+        pb_istream_t pbbuffer_in = pb_istream_from_buffer(coap_frame.payload.data, coap_frame.payload.length);
+        
+        message.requests.funcs.decode = &decode_parameter;
+        message.requests.arg = &parameter;
+        message.parameters.funcs.decode = &decode_parameter;
+        message.parameters.arg = &parameter;
+        message.responses.funcs.decode = &decode_parameter;
+        message.responses.arg = &parameter;
+        success = pb_decode(&pbbuffer_in, subseawireless_Message_fields, &message);
+
+        printf("SWiG message from %i to %i [%s]\n", message.source, message.target, success ? "ok" : "failed");
+      }
+    }
+
     //udp.flush();
 
     if (!success) return;
     
     // send response back to sender
-    pb_ostream_t pbbuffer = pb_ostream_from_buffer(sMsg, sizeof(sMsg));
+    pb_ostream_t pbbuffer = pb_ostream_from_buffer(message_buffer, sizeof(message_buffer));
     encode_swig_response(&pbbuffer);
 
-    size_t cobs_size = cobsEncode(sMsg, pbbuffer.bytes_written, cobs_buffer);
-    // add 0 as delimiter (not needed/expected by the example Python test harness)
-    // cobs_buffer[cobs_size++] = 0;
+    // add CoAP header
+    coap_frame.payload.data = message_buffer;
+    coap_frame.payload.length = pbbuffer.bytes_written;
+    size_t coap_msg_length = coapEncode(&coap_frame, coap_buffer);
+
+    // add crc
+    uint16_t crc = Crc16CalculateChecksum(coap_buffer, coap_msg_length);
+    coap_buffer[coap_msg_length] = crc >> 8;
+    coap_buffer[coap_msg_length+1] = crc & 0xFF;
+
+    // COBs encode and add 0 as a delimiter at the start and end
+    cobs_buffer[0] = 0;
+    size_t cobs_size = 1 + cobsEncode(coap_buffer, coap_msg_length+2, &cobs_buffer[1]);
+    cobs_buffer[cobs_size++] = 0;
+    
     send_to_stream(&udp_out_stream, cobs_buffer, cobs_size);
     printf("Sent COBS response: raw size %lu, encoded size %lu bytes\n", (long unsigned)pbbuffer.bytes_written, (long unsigned)cobs_size);
   }
@@ -201,7 +265,7 @@ void onPacketReceived(const uint8_t* buffer, size_t size)
   success = success && decode_swig_message(&pbbuffer_in, &message);
   if (!success) return;
   // send response
-  pb_ostream_t pbbuffer = pb_ostream_from_buffer(sMsg, sizeof(sMsg));
+  pb_ostream_t pbbuffer = pb_ostream_from_buffer(message_buffer, sizeof(message_buffer));
   encode_swig_response(&pbbuffer);
   //cobs.send(sMsg, pbbuffer.bytes_written); 
 
@@ -239,7 +303,35 @@ void loop() {
 }
 
 
-int main (void) {
+void usage(const char *prog) {
+  fprintf(stderr,
+    "Usage: %s [--port <udp-port>] [--source <source-id>] [--target <target-id>]\n"
+    "  --port    UDP port to listen on (default: 55502)\n"
+    "  --source  Source ID for SWiG messages (default: 2)\n"
+    "  --target  Target ID for SWiG messages (default: 1)\n", prog);
+}
+
+/**
+ * @brief Parse command line arguments, falling back to defaults
+ */
+void parse_args(int argc, char **argv) {
+  for (int i = 1; i < argc; i++) {
+    if (strcmp(argv[i], "--port") == 0 && i + 1 < argc) {
+      udp_port = (unsigned int)atoi(argv[++i]);
+    } else if (strcmp(argv[i], "--source") == 0 && i + 1 < argc) {
+      message_source = atoi(argv[++i]);
+    } else if (strcmp(argv[i], "--target") == 0 && i + 1 < argc) {
+      message_target = atoi(argv[++i]);
+    } else {
+      fprintf(stderr, "Invalid argument: %s\n", argv[i]);
+      usage(argv[0]);
+      exit(EXIT_FAILURE);
+    }
+  }
+}
+
+int main (int argc, char **argv) {
+  parse_args(argc, argv);
   setup();
   while (true) loop();
 }
